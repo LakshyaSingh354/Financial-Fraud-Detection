@@ -1,137 +1,113 @@
+import glob
+import os
+
+from train_fns import get_model, initial_record, normalize, save_model, train_fg
+from utils import construct_graph, get_edgelists, get_labels
+
 import torch
-import torch.nn.functional as F
-import numpy as np
-from sklearn.metrics import roc_auc_score, f1_score, average_precision_score
-from tqdm import tqdm
-from stagn import STAGNModel
-from sklearn.model_selection import train_test_split
-from feature_engineering import load_stagn_data
 
 
-def to_pred(logits: torch.Tensor) -> list:
-    """Convert logits to class predictions."""
-    with torch.no_grad():
-        pred = F.softmax(logits, dim=1).cpu()
-        pred = pred.argmax(dim=1)
-    return pred.numpy().tolist()
+args = {
+    "compute_metrics": True,
+    "dropout": 0.2,
+    "edges": 'relation*',
+    "embedding_size": 360,
+    "labels": 'tags.csv',
+    "lr": 0.01,
+    "model_dir": './model',
+    "n_epochs": 1000,
+    "n_hidden": 16,
+    "n_layers": 3,
+    "new_accounts": 'test.csv',
+    "nodes": 'features.csv',
+    "num_gpus": 0,
+    "optimizer": 'adam',
+    "output_dir": './output',
+    "target_ntype": 'TransactionID',
+    "threshold": 0,
+    "training_dir": '/kaggle/input/rgcn-ieee',
+    "weight_decay": 0.0005
+}
 
-def stagn_train_2d(
-    features,
-    labels,
-    train_idx,
-    test_idx,
-    g,
-    num_classes: int = 2,
-    epochs: int = 18,
-    attention_hidden_dim: int = 150,
-    lr: float = 3e-3,
-    device: str = "cpu"
-):
-    g = g.to(device)
+file_list = glob.glob('data/*edgelist.csv')
 
-    # Initialize model
-    model = STAGNModel(
-        time_windows_dim=features.shape[2],
-        feat_dim=features.shape[1],
-        num_classes=num_classes,
-        attention_hidden_dim=attention_hidden_dim,
-        g=g,
-        device=device
-    )
-    model.to(device)
+edges = ",".join(map(lambda x: x.split("/")[-1], [file for file in file_list if "relation" in file]))
 
-    # Prepare data
-    features = torch.from_numpy(features).to(device)
-    features.transpose_(1, 2)  # Transpose features to match model input format
-    labels = torch.from_numpy(labels).to(device)
+args["edges"] = edges
 
-    # Compute class weights for imbalanced datasets
-    unique_labels, counts = torch.unique(labels, return_counts=True)
-    weights = (1 / counts) * len(labels) / len(unique_labels)
+args["edges"] = get_edgelists('relation*', args["training_dir"])
 
-    # Define optimizer and loss function
-    optimizer = torch.optim.Adam(model.parameters(), lr=lr)
-    loss_func = torch.nn.CrossEntropyLoss(weight=weights)
+g, features, target_id_to_node, id_to_node = construct_graph(args["training_dir"],
+                                args["edges"],
+                                args["nodes"],
+                                args["target_ntype"])
 
-    # Training loop
-    pbar = tqdm(range(epochs), desc="Training Progress")
+mean, stdev, features = normalize(torch.from_numpy(features))
 
-    for epoch in pbar:
-        optimizer.zero_grad()
-    
-        # Forward pass
-        out = model(features, g)
-    
-        # Compute loss
-        loss = loss_func(out[train_idx], labels[train_idx])
-    
-        # Backward pass and optimization
-        loss.backward()
-        optimizer.step()
-    
-        # Evaluate on training data
-        pred = to_pred(out[train_idx])
-        true = labels[train_idx].cpu().numpy()
-        pred = np.array(pred)
-        auc = roc_auc_score(true, pred)
-        f1 = f1_score(true, pred, average='macro')
-        ap = average_precision_score(true, pred)
-    
-        # Update progress bar with metrics
-        pbar.set_postfix(loss=f"{loss:.4f}", auc=f"{auc:.4f}", f1=f"{f1:.4f}", ap=f"{ap:.4f}")
+print('feature mean shape:{}, std shape:{}'.format(mean.shape, stdev.shape))
 
-    # Evaluate on test data
-    with torch.no_grad():
-        out = model(features, g)
-        pred = to_pred(out[test_idx])
-        true = labels[test_idx].cpu().numpy()
-        pred = np.array(pred)
-        print(
-            f"Test set | auc: {roc_auc_score(true, pred):.4f}, "
-            f"F1: {f1_score(true, pred, average='macro'):.4f}, "
-            f"AP: {average_precision_score(true, pred):.4f}"
-        )
-    return model
+g.nodes['target'].data['features'] = features
 
-def stagn_main(
-    features,
-    labels,
-    test_ratio,
-    g,
-    mode: str = "2d",
-    epochs: int = 18,
-    attention_hidden_dim: int = 150,
-    lr: float = 0.003,
-    device="cpu",
-):
-    # Split data into training and testing sets
-    train_idx, test_idx = train_test_split(
-        np.arange(features.shape[0]), test_size=test_ratio, stratify=labels
-    )
+print("Getting labels")
+n_nodes = g.number_of_nodes('target')
 
-    # Train the model
-    model = stagn_train_2d(
-        features,
-        labels,
-        train_idx,
-        test_idx,
-        g,
-        epochs=epochs,
-        attention_hidden_dim=attention_hidden_dim,
-        lr=lr,
-        device=device
-    )
+labels, _, test_mask = get_labels(target_id_to_node,
+                        n_nodes,
+                        args["target_ntype"],
+                        os.path.join(args["training_dir"], args["labels"]),
+                        os.path.join(args["training_dir"], args["new_accounts"]))
+print("Got labels")
 
-    return model
+labels = torch.from_numpy(labels).float()
+test_mask = torch.from_numpy(test_mask).float()
 
-features, labels, g = load_stagn_data()
-model = stagn_main(
-    features=features,
-    labels=labels,
-    test_ratio=0.2,
-    g=g,
-    epochs=1000,
-    attention_hidden_dim=128,
-    lr=1e-3,
-    device="cuda" if torch.cuda.is_available() else "cpu"
-)
+n_nodes = torch.sum(torch.tensor([g.number_of_nodes(n_type) for n_type in g.ntypes]))
+n_edges = torch.sum(torch.tensor([g.number_of_edges(e_type) for e_type in g.etypes]))
+
+print("""----Data statistics------'
+        #Nodes: {}
+        #Edges: {}
+        #Features Shape: {}
+        #Labeled Test samples: {}""".format(n_nodes,
+                            n_edges,
+                            features.shape,
+                            test_mask.sum()))
+
+device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+
+print("Initializing Model")
+in_feats = features.shape[1]
+n_classes = 2
+
+ntype_dict = {n_type: g.number_of_nodes(n_type) for n_type in g.ntypes}
+
+model = get_model(ntype_dict, g.etypes, args, in_feats, n_classes, device)
+print("Initialized Model")
+
+features = features.to(device)
+
+labels = labels.long().to(device)
+test_mask = test_mask.to(device)
+g = g.to(device)
+
+loss = torch.nn.CrossEntropyLoss()
+
+# print(model)
+optim = torch.optim.Adam(model.parameters(), lr=args["lr"], weight_decay=args["weight_decay"])
+
+print("Starting Model training")
+
+initial_record()
+
+model, class_preds, pred_proba = train_fg(model, optim, loss, features, labels, g, g,
+                        test_mask, device, args["n_epochs"],
+                        args["threshold"],  args["compute_metrics"])
+print("Finished Model training")
+
+print("Saving model") 
+
+if not os.path.exists(args["model_dir"]):
+    os.makedirs(args["model_dir"])
+
+save_model(g, model, args["model_dir"], id_to_node, mean, stdev)
+print("Model and metadata saved")
