@@ -1,7 +1,15 @@
 import copy
+import os
+import pickle
 import time
 from matplotlib import pyplot as plt
+import numpy as np
+import pandas as pd
 from sklearn.metrics import auc, average_precision_score, confusion_matrix, precision_recall_curve, roc_curve
+import torch
+from tqdm import tqdm
+
+from rgcn import HeteroRGCN
 
 
 def get_f1_score(y_true, y_pred):
@@ -29,7 +37,7 @@ def evaluate(model, g, features, labels, device):
     "Compute the F1 value in a binary classification case"
 
     preds = model(g, features.to(device))
-    preds = th.argmax(preds, axis=1).cpu().numpy()
+    preds = torch.argmax(preds, axis=1).cpu().numpy()
     precision, recall, f1 = get_f1_score(labels, preds)
 
     return precision
@@ -37,7 +45,7 @@ def evaluate(model, g, features, labels, device):
 
 def get_model_class_predictions(model, g, features, labels, device, threshold=None):
     unnormalized_preds = model(g, features.to(device))
-    pred_proba = th.softmax(unnormalized_preds, dim=-1)
+    pred_proba = torch.softmax(unnormalized_preds, dim=-1)
     if not threshold:
         return unnormalized_preds.argmax(axis=1).detach().cpu().numpy(), pred_proba[:,1].detach().cpu().numpy()
     return np.where(pred_proba.detach().cpu().numpy() > threshold, 1, 0), pred_proba[:,1].detach().cpu().numpy()
@@ -45,57 +53,16 @@ def get_model_class_predictions(model, g, features, labels, device, threshold=No
 def save_model(g, model, model_dir, id_to_node, mean, stdev):
 
     # Save Pytorch model's parameters to model.pth
-    th.save(model.state_dict(), os.path.join(model_dir, 'model.pth'))
+    torch.save(model.state_dict(), os.path.join(model_dir, 'model.pth'))
 
     # Save graph's structure information to metadata.pkl for inference codes to initialize RGCN model.
     etype_list = g.canonical_etypes
     ntype_cnt = {ntype: g.number_of_nodes(ntype) for ntype in g.ntypes}
-    with open(os.path.join(model_dir, 'metadata.pkl'), 'wb') as f:
+    with open(os.patorch.join(model_dir, 'metadata.pkl'), 'wb') as f:
         pickle.dump({'etypes': etype_list,
                      'ntype_cnt': ntype_cnt,
                      'feat_mean': mean,
                      'feat_std': stdev}, f)
-
-    # Save original IDs to Node_ids, and trained embedding for non-target node type
-    # Covert id_to_node into pandas dataframes
-    # for ntype, mapping in id_to_node.items():
-
-    #     # ignore target node
-    #     if ntype == 'target':
-    #         continue
-
-    #     # retrieve old and node id list
-    #     old_id_list, node_id_list = [], []
-    #     for old_id, node_id in mapping.items():
-    #         old_id_list.append(old_id)
-    #         node_id_list.append(node_id)
-
-    #     # retrieve embeddings of a node type
-    #     node_feats = model.embed[ntype].detach().cpu().numpy()
-
-    #     # get the number of nodes and the dimension of features
-    #     num_nodes = node_feats.shape[0]
-    #     num_feats = node_feats.shape[1]
-
-    #     # create id dataframe
-    #     node_ids_df = pd.DataFrame({'~label': [ntype] * num_nodes})
-    #     node_ids_df['~id_tmp'] = old_id_list
-    #     node_ids_df['~id'] = node_ids_df['~label'] + '-' + node_ids_df['~id_tmp']
-    #     node_ids_df['node_id'] = node_id_list
-
-    #     # create feature dataframe columns
-    #     cols = {'val' + str(i + 1) + ':Double': node_feats[:, i] for i in range(num_feats)}
-    #     node_feats_df = pd.DataFrame(cols)
-
-    #     # merge id with feature, where feature_df use index
-    #     node_id_feats_df = node_ids_df.merge(node_feats_df, left_on='node_id', right_on=node_feats_df.index)
-    #     # drop the id_tmp and node_id columns to follow the Grelim format requirements
-    #     node_id_feats_df = node_id_feats_df.drop(['~id_tmp', 'node_id'], axis=1)
-
-    #     # dump the embeddings to files
-    #     node_id_feats_df.to_csv(os.path.join(model_dir, ntype + '.csv'),
-    #                             index=False, header=True, encoding='utf-8')
-
 
 def get_model(ntype_dict, etypes, hyperparams, in_feats, n_classes, device):
 
@@ -105,15 +72,15 @@ def get_model(ntype_dict, etypes, hyperparams, in_feats, n_classes, device):
     return model
 
 def initial_record():
-    if os.path.exists('./output/results.txt'):
+    if os.patorch.exists('./output/results.txt'):
         os.remove('./output/results.txt')
     with open('./output/results.txt','w') as f:    
         f.write("Epoch,Time(s),Loss,Precision\n")   
 
 
 def normalize(feature_matrix):
-    mean = th.mean(feature_matrix, axis=0)
-    stdev = th.sqrt(th.sum((feature_matrix - mean)**2, axis=0)/feature_matrix.shape[0])
+    mean = torch.mean(feature_matrix, axis=0)
+    stdev = torch.sqrt(torch.sum((feature_matrix - mean)**2, axis=0)/feature_matrix.shape[0])
     return mean, stdev, (feature_matrix - mean) / stdev
 
 def save_roc_curve(fpr, tpr, roc_auc, location):
@@ -170,8 +137,8 @@ def get_metrics(pred, pred_proba, labels, mask, out_dir):
     roc_auc = auc(fpr, tpr)
     pr_auc = auc(rec, prc)
 
-    save_roc_curve(fpr, tpr, roc_auc, os.path.join(out_dir, "roc_curve.png"))
-    save_pr_curve(prc, rec, pr_auc, ap, os.path.join(out_dir, "pr_curve.png"))
+    save_roc_curve(fpr, tpr, roc_auc, os.patorch.join(out_dir, "roc_curve.png"))
+    save_pr_curve(prc, rec, pr_auc, ap, os.patorch.join(out_dir, "pr_curve.png"))
 
     return acc, f1, precision, recall, roc_auc, pr_auc, ap, confusion_matrix
 
