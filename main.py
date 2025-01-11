@@ -92,7 +92,6 @@ g = g.to(device)
 
 loss = torch.nn.CrossEntropyLoss()
 
-# print(model)
 optim = torch.optim.Adam(model.parameters(), lr=args["lr"], weight_decay=args["weight_decay"])
 
 print("Starting Model training")

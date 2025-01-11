@@ -10,23 +10,17 @@ class HeteroRGCNLayer(nn.Module):
         super(HeteroRGCNLayer, self).__init__()
         # W_r for each relation
         self.weight = nn.ModuleDict({
-                name: nn.Linear(in_size, out_size) for name in etypes
+                str(name): nn.Linear(in_size, out_size) for name in etypes
             })
 
     def forward(self, G, feat_dict):
-        # The input is a dictionary of node features for each type
         funcs = {}
         for srctype, etype, dsttype in G.canonical_etypes:
-            # Compute W_r * h
             if srctype in feat_dict:
                 Wh = self.weight[etype](feat_dict[srctype])
-                # Save it in graph for message passing
-                G.nodes[srctype].data['Wh_%s' % etype] = Wh
-                # Specify per-relation message passing functions: (message_func, reduce_func).
-                funcs[etype] = (fn.copy_u('Wh_%s' % etype, 'm'), fn.mean('m', 'h'))
-        # Trigger message passing of multiple types.
+                G.nodes[srctype].data[f'Wh_{etype}'] = Wh
+                funcs[etype] = (fn.copy_u(f'Wh_{etype}', 'm'), fn.mean('m', 'h'))
         G.multi_update_all(funcs, 'sum')
-        # return the updated node feature dictionary
         return {ntype: G.nodes[ntype].data['h'] for ntype in G.ntypes if 'h' in G.nodes[ntype].data}
 
 
