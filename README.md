@@ -39,6 +39,23 @@ Even though focus is on precision, using techniques mentioned above, the F1 scor
 
 For more architecture and implementation detail please see [here](https://lakshyasingh.tech/fraud-detection).
 
+## Setup and Installation
+1.	Clone the Repository
+```shell
+git clone https://github.com/LakshyaSingh354/Financial-Fraud-Detection.git 
+cd Financial-Fraud-Detection
+```
+
+2. Build Docker image
+```shell
+docker build -t fraud-detection .  
+```
+
+3. Run Docker Container
+```shell
+docker run -p 5000:5000 fraud-detection  
+```
+
 ## Future Enhancements
 - Integrate temporal graph neural networks for time-series analysis.
 - Develop explainability features to make predictions more interpretable.
