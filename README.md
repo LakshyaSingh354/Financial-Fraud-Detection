@@ -37,7 +37,7 @@ Even though focus is on precision, using techniques mentioned above, the F1 scor
     - **Spectral Subgraph Sampling:** Focuses on local graph structures for computational efficiency.
     - **Task-Specific Weight Sharing:** Enhances the model’s ability to differentiate fraud patterns. 
 
-For more architecture and implementation detail please see [here](https://lakshyasingh.tech/fraud-detection).
+For more architecture and implementation detail please see [here](https://lakshyasingh.tech/projects/fraud-detection).
 
 ## Setup and Installation
 1.	Clone the Repository
