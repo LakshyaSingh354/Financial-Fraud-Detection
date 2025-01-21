@@ -56,6 +56,9 @@ docker build -t fraud-detection .
 docker run -p 5000:5000 fraud-detection  
 ```
 
+4. Acess the API
+The API is accessible at http://localhost:5000/predict
+
 ## Future Enhancements
 - Integrate temporal graph neural networks for time-series analysis.
 - Develop explainability features to make predictions more interpretable.
