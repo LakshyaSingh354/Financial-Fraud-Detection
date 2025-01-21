@@ -1,16 +1,33 @@
 import pickle
 import dgl
+import numpy as np
 import torch
 from flask import Flask, request, jsonify
+import onnx
+import onnxruntime as ort
 
 from rgcn import HeteroRGCN
 
 
 
-def load_model(ntype_dict, etypes, in_size, hidden_size, out_size, n_layers, embedding_size, weights_path, device):
+def load_model_and_infer_onnx(ntype_dict, etypes, in_size, hidden_size, out_size, n_layers, embedding_size, weights_path, onnx_path, device, input_sample):
     """
-    Recreate and load the RGCN model with saved weights.
+    Recreate, load the RGCN model, export it to ONNX, and use it for inference.
+    
+    Parameters:
+        ntype_dict: Dictionary defining node types.
+        etypes: List of edge types.
+        in_size: Input size of features.
+        hidden_size: Hidden layer size.
+        out_size: Output size.
+        n_layers: Number of layers.
+        embedding_size: Size of embeddings.
+        weights_path: Path to the saved weights.
+        onnx_path: Path to save the ONNX model.
+        device: The device to use (CPU/GPU).
+        input_sample: Sample input tensor for ONNX export (ensure it's on CPU).
     """
+    # Step 1: Create the PyTorch model and load weights
     model = HeteroRGCN(
         ntype_dict=ntype_dict,
         etypes=etypes,
@@ -22,7 +39,24 @@ def load_model(ntype_dict, etypes, in_size, hidden_size, out_size, n_layers, emb
     ).to(device)
     model.load_state_dict(torch.load(weights_path, map_location=device), strict=False)
     model.eval()
-    return model
+
+    # Step 2: Export the model to ONNX
+    torch.onnx.export(
+        model, 
+        input_sample,  # Provide a sample input tensor
+        onnx_path,
+        export_params=True,  # Store the trained parameter weights inside the model file
+        opset_version=12,  # ONNX opset version (ensure compatibility)
+        do_constant_folding=True,  # Optimize constant folding for inference
+        input_names=["input"],  # Input tensor names
+        output_names=["output"],  # Output tensor names
+        dynamic_axes={"input": {0: "batch_size"}, "output": {0: "batch_size"}}
+    )
+    
+    # Step 3: Verify the ONNX model
+    onnx_model = onnx.load(onnx_path)
+    onnx.checker.check_model(onnx_model)
+    print(f"ONNX model saved to {onnx_path} and verified successfully.")
 
 def preprocess_transaction(transaction, g, mean, stdev, target_id_to_node, id_to_node):
     """
@@ -35,7 +69,7 @@ def preprocess_transaction(transaction, g, mean, stdev, target_id_to_node, id_to
     # Normalize features
     features = features + [0] * (390 - len(features))
     features = (torch.tensor(features) - mean) / stdev
-    features = torch.tensor(features).float()
+    features = features.float()
 
     # Extract current graph data
     node_dict = {ntype: g.nodes(ntype) for ntype in g.ntypes}
@@ -140,7 +174,7 @@ etypes = [node for etype in etypes for node in etype]
 # print(etypes)
 in_feats = metadata['feat_mean'].shape[0]
 
-model = load_model(ntype_dict, etypes, in_feats, 20, 2, 3, 390, "model/model.pth", device)
+model = load_model_and_infer_onnx(ntype_dict, etypes, in_feats, 20, 2, 3, 390, "model/model.pth", "model/model.onnx", device)
 mean, stdev = load_normalization_metadata()
 # print(g.canonical_etypes)
 
@@ -153,8 +187,7 @@ def predict():
     target_id_to_node = node_metadata['target_id_to_node']
     id_to_node = node_metadata['id_to_node']
     fraud_likelihood = infer_single_transaction(transaction, model, g, mean, stdev, target_id_to_node, id_to_node, device)
-    return jsonify({"fraud_likelihood": fraud_likelihood.tolist()})
+    return jsonify({"fraud_likelihood": fraud_likelihood.tolist()[-1]})
 
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=8000, debug=True)
-
+    app.run(host='0.0.0.0', port=8000)
