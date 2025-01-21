@@ -53,11 +53,11 @@ docker build -t fraud-detection .
 
 3. Run Docker Container
 ```shell
-docker run -p 5000:5000 fraud-detection  
+docker run -p 8080:8080 fraud-detection  
 ```
 
 4. Acess the API
-The API is accessible at http://localhost:5000/predict
+The API is accessible at http://localhost:8080/predict
 
 ## Future Enhancements
 - Integrate temporal graph neural networks for time-series analysis.
