@@ -56,7 +56,7 @@ docker build -t fraud-detection .
 docker run -p 8080:8080 fraud-detection  
 ```
 
-4. Acess the API
+4. Acess the API <br />
 The API is accessible at http://localhost:8080/predict
 
 ## Future Enhancements
