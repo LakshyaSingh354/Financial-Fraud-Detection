@@ -19,7 +19,7 @@ Fraud detection is a critical challenge in the financial industry, where convent
 - **Containerized API Deployment:** Easy-to-use API for fraud prediction, ready for integration into production systems.
 
 ## Performance Highlights
-Since the dataset used is heavily imbalanced, we have to choose between Precsion or Recall and since we do not want to hinder user experience by incorrectly classifying the legitimate transactions as fraud, focusing on Precision seems like the right choice.
+Since the dataset used is heavily imbalanced, we have to choose between Precision or Recall and since we do not want to hinder user experience by incorrectly classifying the legitimate transactions as fraud, focusing on Precision seems like the right choice.
 
 Even though focus is on precision, using techniques mentioned above, the F1 score and AP are improved significanlty without hurting the Precision.
 | Metric | Logistic Regression | Neural Network | RGCN | RGCN + Unigad |
